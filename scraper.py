@@ -1,461 +1,234 @@
+import abbreviate
+import textwrap
 import requests
 from bs4 import BeautifulSoup
 import pandas as pd
 
-tableNames = []
-seenTableNames = set()
-def appendToTableNames(newTableNames):
-  global tableNames
-  global seenTableNames
-
-  #using 'not in' gets very slow on lists,
-  #'set()' does not maintain order :(
-  for newTableName in newTableNames:
-    if newTableName not in seenTableNames:
-      seenTableNames.add(newTableName)
-      tableNames.append(newTableName)
- 
-allTablesTable = []
-allFieldsTable = []
-allFkTable = []
-allPkTable = []
-allEnumTable = [] 
+table_names = []
+seen_table_names = set()
+all_tables_table = []
+all_fields_table = []
+all_fk_table = []
+all_pk_table = []
+all_enum_table = []
 
 
-def processFkTable(fkTable):
-  tableRows = []
-  newTableNames = []
+def append_to_table_names(new_table_names):
+    # global table_names
+    # global seen_table_names
+    global init_table_names
 
-  for tr in fkTable.find_all("tr", recursive=False): #, limit=5
-    #print('8888888888888888888')
-    tds = tr.find_all("td", recursive=False)
-    cellContents = []
-
-    for td in tds:
-      #print('index:' + str(tr.index(td)))
-      #print(td.text.strip())
-
-      # 9 is the checktable
-      if tr.index(td) == 9:
-        if td.text.strip() != '':
-          newTableNames.append(td.text.strip())
-
-      cellContents.append(td.text.strip())
-
-    #print(cellContents)
-    tableRows.append(cellContents)
-
-  global allFkTable
-  allFkTable = allFkTable + tableRows
-
-  #print(tableRows)
-  #print(newTableNames)
-  appendToTableNames(newTableNames)
-  #print(tableNames)
+    # using 'not in' gets very slow on lists,
+    # 'set()' does not maintain order :(
+    for new_table_name in new_table_names:
+        if new_table_name not in seen_table_names and new_table_name in init_table_names:
+            seen_table_names.add(new_table_name)
+            table_names.append(new_table_name)
 
 
-def processFieldsTable(tableName, fieldsTable):
-  newTableNames = []
+def process_fk_table(fk_table, all_fk_table):
+    table_rows = []
+    new_table_names = []
 
-  for tr in fieldsTable.find_all("tr", recursive=False): #, limit=5
-    #print('8888888888888888888')
-    cellContents = [tableName]
-    isPK = 0
-    currentFieldName =''
+    for tr in fk_table.find_all("tr", recursive=False):  # , limit=5
+        # print('8888888888888888888')
+        tds = tr.find_all("td", recursive=False)
+        cell_contents = []
 
-    # flag PK if it's a PK field
-    if tr.has_attr('class'):
-      if tr['class'][0] == 'info': # tr['class'] is a list, info should be the only one there, and means it's a PK
-        isPK = 1
+        for td in tds:
+            # print('index:' + str(tr.index(td)))
+            # print(td.text.strip())
 
-    tds = tr.find_all("td", recursive=False)
-    for td in tds:
-      # 1 is the field name
-      if tr.index(td) == 1:
-        currentFieldName = td.text.strip()
-        if isPK == 1:
-          global allPkTable
-          allPkTable.append([tableName, td.text.strip()])
+            # 9 is the checktable
+            if tr.index(td) == 9:
+                if td.text.strip() != '':
+                    new_table_names.append(td.text.strip())
 
-      #print('index:' + str(tr.index(td)))
+            cell_contents.append(td.text.strip())
 
-      # 7 is the checktable
-      if tr.index(td) == 7:
-        if td.text.strip() != '':
-          newTableNames.append(td.text.strip())
+        # print(cell_contents)
+        table_rows.append(cell_contents)
 
-      if 'Possible values' in td.text:
-        #print ('bonus content!')
-        cellContents.append('1')
-        processEnumeratedValues(tableName, currentFieldName, td)
-      else:
-        cellContents.append(td.text.strip())
+    # global all_fk_table
+    all_fk_table = all_fk_table + table_rows
 
-    global allFieldsTable
-    #print(cellContents)
-    allFieldsTable.append(cellContents)
+    # print(table_rows)
+    # print(new_table_names)
+    append_to_table_names(new_table_names)
+    # print(table_names)
 
-  #print(newTableNames)
-  appendToTableNames(newTableNames)
 
-  #df = pd.DataFrame(tableRows)
-  #df
+def process_fields_table(table_name, fields_table, all_enum_table):
+    new_table_names = []
 
-def processEnumeratedValues(tableName, currentFieldName, incomingElement):
+    for tr in fields_table.find_all("tr", recursive=False):  # , limit=5
+        # print('8888888888888888888')
+        cell_contents = [table_name]
+        is_pk = 0
+        current_field_name = ''
 
-  for tr in incomingElement.find_all("tr"): #, limit=5
-    cellContents = [tableName, currentFieldName]
-    for td in tr.find_all("td", recursive=False):
-      cellContents.append(td.text.strip())
+        # # flag PK if it's a PK field
+        # if tr.has_attr('class'):
+        #     if tr['class'][
+        #         0] == 'info':  # tr['class'] is a list, info should be the only one there, and means it's a PK
+        #         is_pk = 1
 
-    global allEnumTable
-    allEnumTable.append(cellContents)
-    
-    
-def dumpScrapedData():
-  #print(allTablesTable)
-  #print(allFieldsTable)
-  #print(allFkTable)
-  #print(allPkTable)
-  #print(allEnumTable)
+        tds = tr.find_all("td", recursive=False)
+        for td in tds:
+            # 1 is the field name
+            if tr.index(td) == 1:
+                current_field_name = td.text.strip()
+                # if is_pk == 1:
+                #     global all_pk_table
+                #     all_pk_table.append([table_name, td.text.strip()])
 
-  with pd.ExcelWriter('pandas_to_excel.xlsx') as writer:
-    pd.DataFrame(tableNames).to_excel(writer, sheet_name='tableNames')
-    pd.DataFrame(allTablesTable).to_excel(writer, sheet_name='allTablesTable')
-    pd.DataFrame(allFieldsTable).to_excel(writer, sheet_name='allFieldsTable')
-    pd.DataFrame(allFkTable).to_excel(writer, sheet_name='allFkTable')
-    pd.DataFrame(allPkTable).to_excel(writer, sheet_name='allPkTable')
-    pd.DataFrame(allEnumTable).to_excel(writer, sheet_name='allEnumTable')    
-    
-    
-initTableNames = [
-  'DD01L'
-, 'DD02L'
-, 'DD02T'
-, 'DD02V'
-, 'DD03L'
-, 'DD03T'
-, 'DD04L'
-, 'DD04T'
-, 'DD07L'
-, 'DD09L'
-, 'DD12L'
-, 'TDEVC'
-, 'TFDIR'
-, 'TFTIT'
-, 'ENLFDIR'
-, 'TADIR'
-, 'TRDIR'
-, 'TMDIR'
-, 'D010TAB'
-, 'TAPLT'
-, 'SEOCLASS'
-, 'D020S'
-, 'D020T'
-, 'TSE05'
-, 'DM42S'
-, 'T100'
-, 'TSTC'
-, 'TSTCP'
-, 'FILEPATH'
-, 'PATH'
-, 'SYST'
-, 'VBMOD'
-, 'VBDATA'
-, 'STXFADM'
-, 'STXB'
-, 'STXH'
-, 'STXL'
-, 'TSP01'
-, 'TSP02'
-, 'TST01'
-, 'TST03'
-, 'TTXOB'
-, 'TTXOT'
-, 'DOKIL'
-, 'DOKHL'
-, 'DOKTL'
-, 'NRIV'
-, 'TNRO'
-, 'LTDX'
-, 'LTDXD'
-, 'LTDXS'
-, 'TCVIEW'
-, 'USR01'
-, 'USR03'
-, 'USR02'
-, 'USR04'
-, 'USR05'
-, 'USR10'
-, 'UST12'
-, 'USR12'
-, 'USR21'
-, 'USR41'
-, 'UST04'
-, 'DEVACCESS'
-, 'USR40'
-, 'USOBT'
-, 'TSTCA'
-, 'TOBJ'
-, 'SKA1'
-, 'SKAT'
-, 'SKAS'
-, 'SKB1'
-, 'SKM1'
-, 'SKMT'
-, 'SKPF'
-, 'AUFK'
-, 'AFKO'
-, 'AFPO'
-, 'KNA1'
-, 'KNAS'
-, 'KNB1'
-, 'KNB5'
-, 'KNB4'
-, 'KNBK'
-, 'KNC1'
-, 'KNC3'
-, 'LFA1'
-, 'LFAS'
-, 'LFB1'
-, 'LFB5'
-, 'LFBK'
-, 'LFC1'
-, 'LFC3'
-, 'LFM1'
-, 'T078K'
-, 'BKPF'
-, 'BSEG'
-, 'BSID'
-, 'BSIK'
-, 'BSIP'
-, 'BSIS'
-, 'BSAD'
-, 'BSAK'
-, 'BSAS'
-, 'BSET'
-, 'BSEC'
-, 'VBKPF'
-, 'F111G'
-, 'AGKO'
-, 'GLT0'
-, 'REGUH'
-, 'REGUP'
-, 'REGUT'
-, 'CSKA'
-, 'CSKB'
-, 'CSKU'
-, 'CSLA'
-, 'CSLT'
-, 'CSKS'
-, 'CSKT'
-, 'CSSK'
-, 'CSSL'
-, 'COSP'
-, 'COEP'
-, 'COBK'
-, 'COST'
-, 'TKA01'
-, 'TKA02'
-, 'KEKO'
-, 'KEPH'
-, 'KALO'
-, 'KANZ'
-, 'CEPC'
-, 'CKPH'
-, 'ADCP'
-, 'ADRP'
-, 'ADR2'
-, 'ADRC'
-, 'ADRCITY'
-, 'BTCUEV'
-, 'BTCUED'
-, 'BTCSEV'
-, 'BTCSED'
-, 'BTCJSTAT'
-, 'CCCFLOW'
-, 'SDBAC'
-, 'VRSX'
-, 'CVERS'
-, 'PAT03'
-, 'TPROT'
-, 'DBTABLOG'
-, 'E070'
-, 'E71K'
-, 'E070C'
-, 'TLOCK'
-, 'VARID'
-, 'VARIT'
-, 'TVARV'
-, 'VARI'
-, 'VARIS'
-, 'SOFM'
-, 'SOOS'
-, 'SWWWIHEAD'
-, 'CDHDR'
-, 'CDPOS'
-, 'JCDS'
-, 'JEST'
-, 'JSTO'
-, 'ARCH_OBJ'
-, 'SNAP'
-, 'TBTCO'
-, 'TBTCP'
-, 'DDSHPVAL5'
-, 'TCURC'
-, 'TCURT'
-, 'TCURR'
-, 'TCURX'
-, 'TCURF'
-, 'TCURV'
-, 'T247'
-, 'T015M'
-, 'TFACD'
-, 'TTZZ'
-, 'TTZD'
-, 'THOCI'
-, 'T012'
-, 'T012A'
-, 'T012B'
-, 'T012C'
-, 'T012D'
-, 'T012E'
-, 'T012K'
-, 'T012O'
-, 'BNKA'
-, 'TIBAN'
-, 'T056'
-, 'T056G'
-, 'T056R'
-, 'T056S'
-, 'T056Z'
-, 'T5DCX'
-, 'T059A'
-, 'T059B'
-, 'T059C'
-, 'T059D'
-, 'T059E'
-, 'T059G'
-, 'T059F'
-, 'T059K'
-, 'T059P'
-, 'T059Z'
-, 'T007A'
-, 'T007S'
-, 'T007B'
-, 'T042'
-, 'T042A'
-, 'T042B'
-, 'T042C'
-, 'T042D'
-, 'T042E'
-, 'T042F'
-, 'T042H'
-, 'T042G'
-, 'T042I'
-, 'T042J'
-, 'T042K'
-, 'T042N'
-, 'T042L'
-, 'T042S'
-, 'T042V'
-, 'T042W'
-, 'T042Z'
-, 'T008'
-, 'T043'
-, 'T043G'
-, 'T043I'
-, 'T043K'
-, 'T043S'
-, 'T043U'
-, 'T001'
-, 'T000'
-, 'T880'
-, 'T003'
-, 'T004'
-, 'T077S'
-, 'T009'
-, 'T014'
-, 'T010O'
-, 'T010P'
-, 'T001B'
-, 'T002'
-, 'T005'
-, 'T006'
-, 'TGSB'
-]
-    
+            # print('index:' + str(tr.index(td)))
 
-appendToTableNames(initTableNames)
-    
-    
-    
-    
-try:
-  breaker = 0
-  for tableName in tableNames:
-    if breaker == 500: break
+            # 7 is the checktable
+            if tr.index(td) == 7:
+                if td.text.strip() != '':
+                    new_table_names.append(td.text.strip())
 
-    URL = "https://www.leanx.eu/en/sap/table/" + tableName + ".html"
+            if 'Possible values' in td.text:
+                # print ('bonus content!')
+                cell_contents.append('1')
+                process_enumerated_values(table_name, current_field_name, td, all_enum_table)
+            else:
+                cell_contents.append(td.text.strip())
 
-    print('breaker:' +str(breaker))
-    #print(URL)
+        global all_fields_table
+        # print(cell_contents)
+        all_fields_table.append(cell_contents)
 
-    page = requests.get(URL)
-    
+    # print(new_table_names)
+    append_to_table_names(new_table_names)
 
-    cellContents = []
+    # df = pd.DataFrame(tableRows)
+    # df
 
-    #print(tableName)
-    #print(page.text)
-    cellContents.append(tableName)
 
-    soup = BeautifulSoup(page.content, "html.parser")
-    mainContent = soup.find(class_="main-container")
-    #print(mainContent.prettify())
+def process_enumerated_values(table_name, current_field_name, incoming_element, all_enum_table):
+    for tr in incoming_element.find_all("tr"):  # , limit=5
+        cell_contents = [table_name, current_field_name]
+        for td in tr.find_all("td", recursive=False):
+            cell_contents.append(td.text.strip())
+
+        all_enum_table.append(cell_contents)
+
+
+def dump_scraped_data(write_in_excel=False):
+    # print(all_tables_table)
+    # print(all_fields_table)
+    # print(all_fk_table)
+    # print(all_pk_table)
+    # print(all_enum_table)
+
+    tables_description = pd.DataFrame(all_tables_table)
+    tables_description.columns = ['Table Name', 'SAP Table Info', 'Table Description', 'LEANX Link']
+    tables_description = tables_description.drop(['SAP Table Info', 'LEANX Link'], axis=1)
+    columns_description = pd.DataFrame(all_fields_table)
+    columns_description.columns = ['Table Name','Column Name','Column Description','Data Element','Checktable','Datatype', 'Empty_1', 'Length', 'Decimals', 'Empty_2']
+    columns_description = columns_description.drop(['Empty_1', 'Empty_2'], axis=1)
+
+    output = pd.merge(columns_description, tables_description, on="Table Name")
+
+    output = output.loc[:,['Table Name', 'Table Description', 'Column Name', 'Column Description', 'Data Element', 'Checktable', 'Datatype', 'Length', 'Decimals']]
+    output['Table Description Short'] = output['Table Description']
+    output['Column Description Short'] = output['Column Description']
+
+    # abbr = abbreviate.Abbreviate()
+
+    output['Column Description Short'] = output['Column Description Short'].str.lower()
+    output['Column Description Short'] = output['Column Description Short'].str.replace(' ', '_')
+    output['Column Description Short'] = output['Column Description Short'].str.replace('(', '_')
+    output['Column Description Short'] = output['Column Description Short'].str.replace(')', '_')
+    output['Column Description Short'] = output['Column Description Short'].str.replace('/', '_')
+    output['Column Description Short'] = output['Column Description Short'].str.slice(0, 10)
+
+    output.to_csv()
+    # output = output.apply(lambda x: abbr(x['Column Description Short']), axis=1)
+    # output.applymap(abbr).loc[:, 'Column Description Short']
+
+    if write_in_excel is True:
+        with pd.ExcelWriter('pandas_to_excel.xlsx') as writer:
+            # pd.DataFrame(table_names).to_excel(writer, sheet_name='TableNames')
+            tables_description.to_excel(writer, sheet_name='AllTablesTable')
+            columns_description.to_excel(writer, sheet_name='AllFieldsTable')
+            # pd.DataFrame(all_fk_table).to_excel(writer, sheet_name='AllFkTable')
+            # pd.DataFrame(all_pk_table).to_excel(writer, sheet_name='AllPkTable')
+            # pd.DataFrame(all_enum_table).to_excel(writer, sheet_name='AllEnumTable')
+
+
+def main(init_table_names, all_fk_table, all_enum_table):
+    append_to_table_names(init_table_names)
 
     try:
-      tableLongName = mainContent.find("h1").text
-      #print(tableLongName)
-      cellContents.append(tableLongName)
-    except AttributeError:
-      cellContents.append('tableLongName not found')
+        breaker = 0
+        for table_name in table_names:
+            if breaker == 500: break
 
-    try:
-      tableShortDescription = mainContent.find("h2").text
-      #print(tableShortDescription)
-      cellContents.append(tableShortDescription)
-    except AttributeError:
-      cellContents.append('tableShortDescription not found')
+            URL = "https://www.leanx.eu/en/sap/table/" + table_name + ".html"
 
-    cellContents.append(URL)
+            print('breaker:' + str(breaker))
+            # print(URL)
 
-    allTablesTable.append(cellContents)
+            page = requests.get(URL)
 
-    contentTableHeaders = mainContent.find_all("h3")
-    #print(contentTableHeaders[0].prettify())
+            cell_contents = []
 
-    try:
-      fieldsTable = contentTableHeaders[0].findNext("tbody")
-      #print(fieldsTable.prettify())
-      processFieldsTable(tableName, fieldsTable)
-    except AttributeError:
-      pass
-    except IndexError:
-      pass
+            # print(tableName)
+            # print(page.text)
+            cell_contents.append(table_name)
 
-    if len(contentTableHeaders) == 2:
-      fkTable = contentTableHeaders[1].findNext("tbody")
-      #print(fkTable.prettify())
+            soup = BeautifulSoup(page.content, "html.parser")
+            main_content = soup.find(class_="main-container")
+            # print(mainContent.prettify())
 
-      processFkTable(fkTable)
+            try:
+                table_long_name = main_content.find("h1").text
+                print(table_long_name)
+                cell_contents.append(table_long_name)
+            except AttributeError:
+                cell_contents.append('table_long_name not found')
+
+            try:
+                table_short_description = main_content.find("h2").text
+                print(table_short_description)
+                cell_contents.append(table_short_description)
+            except AttributeError:
+                cell_contents.append('table_short_description not found')
+
+            cell_contents.append(URL)
+
+            all_tables_table.append(cell_contents)
+
+            content_table_headers = main_content.find_all("h3")
+            # print(contentTableHeaders[0].prettify())
+
+            try:
+                fields_table = content_table_headers[0].findNext("tbody")
+                # print(fieldsTable.prettify())
+                process_fields_table(table_name, fields_table, all_enum_table)
+            except AttributeError:
+                pass
+            except IndexError:
+                pass
+
+            # if len(content_table_headers) == 2:
+            #     fk_table = content_table_headers[1].findNext("tbody")
+            #     # print(fkTable.prettify())
+            #
+            #     # process_fk_table(fk_table, all_fk_table)
+
+            breaker = breaker + 1
+    except:
+        dump_scraped_data()
+        raise
+
+    dump_scraped_data()
 
 
-    breaker = breaker +1
-except:
-  dumpScrapedData()
-  raise
+# init_table_names = ['EBAN', 'NAST', 'EBUB']
+init_table_names = ['EBAN', 'NAST']
 
-dumpScrapedData()    
-    
-    
+main(init_table_names, all_fk_table, all_enum_table)
