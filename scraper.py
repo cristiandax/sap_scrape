@@ -3,6 +3,9 @@ import textwrap
 import requests
 from bs4 import BeautifulSoup
 import pandas as pd
+import numpy as np
+import re
+
 
 table_names = []
 seen_table_names = set()
@@ -116,7 +119,7 @@ def process_enumerated_values(table_name, current_field_name, incoming_element, 
         all_enum_table.append(cell_contents)
 
 
-def dump_scraped_data(write_in_excel=False):
+def dump_scraped_data():
     # print(all_tables_table)
     # print(all_fields_table)
     # print(all_fk_table)
@@ -136,27 +139,7 @@ def dump_scraped_data(write_in_excel=False):
     output['Table Description Short'] = output['Table Description']
     output['Column Description Short'] = output['Column Description']
 
-    # abbr = abbreviate.Abbreviate()
-
-    output['Column Description Short'] = output['Column Description Short'].str.lower()
-    output['Column Description Short'] = output['Column Description Short'].str.replace(' ', '_')
-    output['Column Description Short'] = output['Column Description Short'].str.replace('(', '_')
-    output['Column Description Short'] = output['Column Description Short'].str.replace(')', '_')
-    output['Column Description Short'] = output['Column Description Short'].str.replace('/', '_')
-    output['Column Description Short'] = output['Column Description Short'].str.slice(0, 10)
-
-    output.to_csv()
-    # output = output.apply(lambda x: abbr(x['Column Description Short']), axis=1)
-    # output.applymap(abbr).loc[:, 'Column Description Short']
-
-    if write_in_excel is True:
-        with pd.ExcelWriter('pandas_to_excel.xlsx') as writer:
-            # pd.DataFrame(table_names).to_excel(writer, sheet_name='TableNames')
-            tables_description.to_excel(writer, sheet_name='AllTablesTable')
-            columns_description.to_excel(writer, sheet_name='AllFieldsTable')
-            # pd.DataFrame(all_fk_table).to_excel(writer, sheet_name='AllFkTable')
-            # pd.DataFrame(all_pk_table).to_excel(writer, sheet_name='AllPkTable')
-            # pd.DataFrame(all_enum_table).to_excel(writer, sheet_name='AllEnumTable')
+    output.to_csv('SAP_Tables_Columns.csv', index=None)
 
 
 def main(init_table_names, all_fk_table, all_enum_table):
@@ -228,7 +211,54 @@ def main(init_table_names, all_fk_table, all_enum_table):
     dump_scraped_data()
 
 
-# init_table_names = ['EBAN', 'NAST', 'EBUB']
-init_table_names = ['EBAN', 'NAST']
+def load_tables(csv_path):
+    tables = pd.read_csv(csv_path)
+    tables['filename'] = tables['filename'].str.split('.').str[0].str.split('_').str[0]
+    tables_list = tables['filename'].values.tolist()
 
-main(init_table_names, all_fk_table, all_enum_table)
+    return tables_list
+
+
+def unique_list(list):
+    list_unique = np.array(list)
+    return list_unique
+
+
+def urlify(s):
+
+    # Remove all non-word characters (everything except numbers and letters)
+    s = re.sub(r"[^\w\s\-]", '', s)
+
+    # Replace all runs of whitespace with a single dash
+    s = re.sub(r"\s+", '_', s)
+    s = re.sub(r"[-]", '_', s)
+    s = re.sub(r"[-*]", '_', s)
+    s = re.sub(r'(.)\1+', r'\1', s)
+    # replace(/[^a-zA-Z0-9]$/mg,'')
+
+    return s
+
+
+def prepare_short_strings(csv_path):
+    mapping_table = pd.read_csv(csv_path)
+
+    mapping_table['Column Description Short'] = mapping_table['Column Description']
+    mapping_table['Column Description Short'] = mapping_table['Column Description Short'].apply(urlify)
+    mapping_table['Column Description Short'] = mapping_table['Column Description Short'].str.lower()
+
+    mapping_table['Table Description Short'] = mapping_table['Table Description']
+    mapping_table['Table Description Short'] = mapping_table['Table Description Short'].apply(urlify)
+    mapping_table['Table Description Short'] = mapping_table['Table Description Short'].str.lower()
+
+    mapping_table.to_csv('SAP_Tables_Columns_prepared.csv', index=None)
+    mapping_table.to_csv('SAP_Tables_Columns_prepared_2.csv', index=None)
+
+
+# init_table_names = ['EBAN', 'NAST', 'EBUB']
+init_table_names = unique_list(load_tables('tables.csv'))
+print(init_table_names)
+
+# main(init_table_names, all_fk_table, all_enum_table)
+
+prepare_short_strings('SAP_Tables_Columns.csv')
+
