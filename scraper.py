@@ -4,14 +4,7 @@ from bs4 import BeautifulSoup
 import pandas as pd
 import numpy as np
 import re
-import nltk
-from nltk.corpus import stopwords
 
-
-def unique_list(list):
-    list_unique = np.array(list)
-    return list_unique
-   
 
 table_names = []
 seen_table_names = set()
@@ -21,9 +14,18 @@ all_fk_table = []
 all_pk_table = []
 all_enum_table = []
 
-# init_table_names = ['EBAN', 'NAST', 'EBUB']
-init_table_names = unique_list(load_tables('tables.csv'))
-print(init_table_names)
+
+def unique_list(list):
+    list_unique = np.array(list)
+    return list_unique
+
+
+def load_tables(csv_path):
+    tables = pd.read_csv(csv_path)
+    tables['filename'] = tables['filename'].str.split('.').str[0].str.split('_').str[0]
+    tables_list = tables['filename'].values.tolist()
+
+    return tables_list
 
 
 def append_to_table_names(new_table_names):
@@ -149,11 +151,9 @@ def main(init_table_names, all_fk_table, all_enum_table):
             all_tables_table.append(cell_contents)
 
             content_table_headers = main_content.find_all("h3")
-            # print(contentTableHeaders[0].prettify())
 
             try:
                 fields_table = content_table_headers[0].findNext("tbody")
-                # print(fieldsTable.prettify())
                 process_fields_table(table_name, fields_table, all_enum_table)
             except AttributeError:
                 pass
@@ -179,14 +179,15 @@ def load_tables(csv_path):
 def urlify(s):
 
     # Remove all non-word characters (everything except numbers and letters)
-    s = re.sub(r"[^\w\s\-]", '', s)
+    s = re.sub(r"[^\w\s\-]", '_', s)
 
     # Replace all runs of whitespace with a single dash
     s = re.sub(r"\s+", '_', s)
     s = re.sub(r"[-]", '_', s)
     s = re.sub(r"[-*]", '_', s)
-    s = re.sub(r'(.)\1+', r'\1', s)
-    # replace(/[^a-zA-Z0-9]$/mg,'')
+    s = re.sub(r"[_*]", '_', s)
+    s = re.sub(r'(_)(?=_*\1)', '', s)
+    s = s.strip('_')
 
     return s
 
@@ -205,10 +206,19 @@ def prepare_short_strings(csv_path):
     return mapping_table
 
 
+def write_in_file(destination_file_path, content):
+    with open(destination_file_path, 'w+', newline='', encoding='utf-8') as f:
+        for line in content:
+            f.write(f"{line}\n")
 
-main(init_table_names, all_fk_table, all_enum_table)
 
+# init_table_names = ['EBAN', 'NAST', 'EBUB']
+init_table_names = unique_list(load_tables('tables.csv'))
+target_database_name = 'prd_internal_cfb_cbi_supply_chain'
 
+create_statements = []
+
+# main(init_table_names, all_fk_table, all_enum_table)
 croda_mapping = prepare_short_strings('SAP_Tables_Columns.csv')
 
 croda_mapping = croda_mapping.rename(columns={'Table Name': 'SAP Table Name',
@@ -230,3 +240,37 @@ croda_mapping = croda_mapping[['SAP Table Name', 'SAP Column Name',
                                'CDP New Table Name', 'CDP New Table Column']]
 
 croda_mapping.to_csv('SAP_Tables_Columns_prepared.csv', index=None)
+
+def prepare_create_translated_statements(dataframe):
+
+    tables_df = dataframe[['SAP Table Name', 'LEANX Table Description', 'CDP Table Name translated']]
+    tables_df.drop_duplicates(inplace=True)
+    # Index(['SAP Table Name', 'SAP Column Name', 'LEANX Table Description',
+    #        'LEANX Column Description', 'CDP Table Name raw',
+    #        'CDP Table Name translated', 'CDP Column translated',
+    #        'CDP New Table Name', 'CDP New Table Column'],
+    #       dtype='object')
+
+    for index, row in tables_df.iterrows():
+        process_table = dataframe[dataframe['SAP Table Name'].str.contains(row['SAP Table Name'])]
+        database_name = target_database_name
+        table_name = process_table['CDP Table Name translated'].drop_duplicates().values[0]
+        table_description = process_table['LEANX Table Description'].drop_duplicates().values[0]
+        col_defs = []
+        for index_col, row_col in process_table.iterrows():
+            col_defs.append(f"\r\n\t{row_col['CDP Column translated']} STRING COMMENT '{row_col['LEANX Column Description']}'")
+
+        col_defs_str = ", ".join(col_defs)
+        create_stmt = f'''CREATE EXTERNAL TABLE {database_name}.{table_name}
+({col_defs_str}
+)
+COMMENT '{table_description}'
+STORED AS PARQUET LOCATION 'hdfs://nameservice1/prd/internal/cfb_cbi_supply_chain/croda/';
+'''
+        create_statements.append(create_stmt)
+
+
+
+prepare_create_translated_statements(dataframe=croda_mapping)
+
+write_in_file(destination_file_path='statements.sql', content=create_statements)
